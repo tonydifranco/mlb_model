@@ -69,6 +69,7 @@ covers_team_number = {
     'WAS': '2972'
 }
 
+
 class MlbLines:
     gid_template = 'gid_20{year}_{month}_{day}_{away}mlb_{home}mlb_{game_num}'
     covers_url_template = ('http://www.covers.com/pageLoader/pageLoader.aspx?'
@@ -141,6 +142,6 @@ class MlbLines:
                 'decimal_line': decimal_line,
                 'over_under': over_under}
 
-
     def table_rows(self):
-        return pd.DataFrame([row for row in self.odds_table_to_rows() if row is not None])
+        return pd.DataFrame([row for row in self.odds_table_to_rows()
+                             if row is not None])
