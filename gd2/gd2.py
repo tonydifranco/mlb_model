@@ -56,7 +56,7 @@ class Scraper:
         content = r.json()
         ls = content['data']['game']
 
-        if ls['ind'] != 'F':
+        if ls['ind'] not in ['F', 'FR']:
             print('ignoring gid {} with ind of {}'.format(gid, ls['ind']))
             return
 
@@ -68,7 +68,8 @@ class Scraper:
         ls_keep = ['league', 'game_type', 'home_division', 'away_division',
                    'home_time', 'away_time', 'home_ampm', 'away_ampm',
                    'home_games_back', 'away_games_back',
-                   'home_games_back_wildcard', 'away_games_back_wildcard']
+                   'home_games_back_wildcard', 'away_games_back_wildcard',
+                   'home_team_runs', 'away_team_runs']
 
         game = {k: ls[k] if k in ls else None for k in ls_keep}
         game['gid'] = gid
@@ -137,13 +138,17 @@ class Scraper:
                 'team_code': bs['away_team_code'],
                 'games_back': self.games_back_to_number(ls['away_games_back']),
                 'games_back_wildcard': self.games_back_to_number(ls['away_games_back_wildcard']),
-                'home_away': 'away'
+                'home_away': 'away',
+                'other_team_code': bs['home_team_code'],
+                'other_team_runs': ls['home_team_runs']
             },
             {
                 'team_code': bs['home_team_code'],
                 'games_back': self.games_back_to_number(ls['home_games_back']),
                 'games_back_wildcard': self.games_back_to_number(ls['home_games_back_wildcard']),
-                'home_away': 'home'
+                'home_away': 'home',
+                'other_team_code': bs['away_team_code'],
+                'other_team_runs': ls['away_team_runs']
             }
         ]
 
