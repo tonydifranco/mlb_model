@@ -40,12 +40,14 @@ gd2_team_lookup = {
     'WSH': 'was',
 }
 
+
 class Scraper:
     referer = 'http://www.oddsshark.com/mlb/scores'
     scores_url = 'http://io.oddsshark.com/scores/mlb/'
     history_url = 'http://www.oddsshark.com/mlb/odds/line-history/'
+    failed_event_ids = []
 
-    def __init__(self, use_proxy=True, timeout=10, max_retries=3):
+    def __init__(self, use_proxy=True, timeout=30, max_retries=2):
         self.use_proxy = use_proxy
         self.timeout = timeout
         self.max_retries = max_retries
@@ -54,8 +56,8 @@ class Scraper:
         with open(ua_file, 'r') as f:
             self.user_agents = f.read().split('\n')
 
-    def get_proxies(self, max_proxies=5, url='https://www.us-proxy.org/', 
-                          test_url='http://localhost:80', timeout=0.1):
+    def get_proxies(self, max_proxies=100, url='https://www.us-proxy.org/',
+                    test_url='http://localhost:80', timeout=1):
 
         if not self.use_proxy:
             return [None]
@@ -71,14 +73,14 @@ class Scraper:
         fast_proxies = []
         for p in proxies:
             try:
-                r = requests.get(test_url, proxies={'http': p}, timeout=timeout)
+                r = requests.get(test_url, proxies={'http': p},
+                                 timeout=timeout)
                 print('{} made the cut'.format(p))
                 fast_proxies.append(p)
                 if len(fast_proxies) >= max_proxies:
                     break
             except:
                 print('{} is too slow'.format(p))
-
 
         print('retained {} total proxies'.format(len(fast_proxies)))
 
@@ -91,20 +93,19 @@ class Scraper:
         proxy_headers = {'User-Agent': user_agent, 'Connection': 'close'}
         if headers is not None:
             proxy_headers.update(headers)
-    
+
         try:
             sleep(random.uniform(0, 1))
-            r = requests.get(url, headers=proxy_headers, 
-                                  proxies={'http': proxy},
-                                  timeout=self.timeout)
+            r = requests.get(url, headers=proxy_headers,
+                             proxies={'http': proxy},
+                             timeout=self.timeout)
         except:
             print('exception when using proxy {}... removing'.format(proxy))
             self.proxies.remove(proxy)
 
             if len(self.proxies) == 0:
-                print('all proxies exhausted')
-                raise Exception()
-            
+                raise Exception('no more proxies')
+
             return
 
         return r
@@ -127,10 +128,11 @@ class Scraper:
         if r.status_code != requests.codes.ok:
             return
 
-        if not r.content:
+        try:
+            content = r.json()
+        except:
+            print('error parsing json from cal_day {}'.format(cal_day))
             return
-
-        content = r.json()
 
         if not content:
             return
@@ -141,18 +143,24 @@ class Scraper:
 
         df = pd.DataFrame(content)
 
-        if not 'home_money_line' in df.columns:
+        if 'home_money_line' not in df.columns:
             print('skipping oddshark day {} with no lines'.format(cal_day))
             return
         else:
             print('scraping oddshark day {}'.format(cal_day))
 
-
         df = df.sort_values('event_date')
-
         df['game_number'] = df.groupby('home_abbreviation').cumcount() + 1
-        df['gid'] = df.apply(lambda x: '{}_{}_{}_{}mlb_{}mlb_{}'.format(year, 
-            month, day, gd2_team_lookup[x['away_abbreviation']], 
+        indexer = (df['home_abbreviation'].notnull() &
+                   df['away_abbreviation'].notnull() &
+                   df['game_number'].notnull())
+        df = df.loc[indexer]
+
+        if df.shape[0] == 0:
+            return
+
+        df['gid'] = df.apply(lambda x: 'gid_{}_{}_{}_{}mlb_{}mlb_{}'.format(
+            year, month, day, gd2_team_lookup[x['away_abbreviation']],
             gd2_team_lookup[x['home_abbreviation']], x['game_number']), axis=1)
 
         df = df[keep_cols]
@@ -160,15 +168,14 @@ class Scraper:
         line_histories = []
         for ev in df.event_id.tolist():
             hist_df = self.get_line_history(ev)
-            
+
             if isinstance(hist_df, pd.DataFrame):
-                hist_df['event_id'] = ev
                 line_histories.append(hist_df)
 
         if line_histories:
-            df = pd.merge(df, pd.concat(line_histories, ignore_index=True), 
-                    on='event_id', how='left')
-        
+            df = pd.merge(df, pd.concat(line_histories, ignore_index=True),
+                          on='event_id', how='left')
+
         return df
 
     def get_line_history(self, event_id):
@@ -183,9 +190,11 @@ class Scraper:
                 break
 
         if not r:
+            self.failed_event_ids.append(event_id)
             return
 
         if r.status_code != requests.codes.ok:
+            self.failed_event_ids.append(event_id)
             return
 
         try:
@@ -197,7 +206,7 @@ class Scraper:
         fmt = '%m/%d/%y %I:%M:%S %p'
 
         columns = []
-        values = []     
+        values = []
         for t in tables:
             t = t[t['Line (Home)'].notnull()]
             if t.shape[0] == 0:
@@ -219,18 +228,19 @@ class Scraper:
                 velocity = 0
             else:
                 velocity = movement / line_hours
-            
+
             line_std = t['Line (Home)'].std()
 
             name = name.lower().replace('.', '_')
             names = ['open', 'close', 'movement', 'velocity', 'std']
             columns = columns + ['{}_{}'.format(name, n) for n in names]
-            values = values + [line_open, line_current, movement, 
+            values = values + [line_open, line_current, movement,
                                velocity, line_std]
 
         if not values:
             return
 
         df = pd.DataFrame([dict(zip(columns, values))])
+        df['event_id'] = event_id
 
         return df
