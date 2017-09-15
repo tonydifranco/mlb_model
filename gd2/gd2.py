@@ -4,7 +4,6 @@ import re
 import requests
 
 from datetime import datetime
-from tqdm import tqdm
 
 
 class Scraper:
